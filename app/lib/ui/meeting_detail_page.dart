@@ -8,7 +8,7 @@ import '../calendar/note_command.dart';
 import '../db/meeting.dart';
 import '../db/models.dart';
 import '../notes/recap_tasks.dart';
-import '../stt/api_key_store.dart';
+import '../stt/llm_key_store.dart';
 import '../stt/openai_refine.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -233,14 +233,14 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
     if (q.isEmpty || _asking) {
       return;
     }
-    final key = await ApiKeyStore.read();
+    final key = await LlmKeyStore.readKey();
     if (key.isEmpty) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Add an OpenAI API key in Settings first.')),
+            content: Text('Add a Groq or OpenAI API key in Settings first.')),
       );
       return;
     }

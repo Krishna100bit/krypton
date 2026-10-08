@@ -32,6 +32,7 @@ import '../stt/cursor_command.dart';
 import '../stt/cursor_prefs.dart';
 import '../macos/cursor_composer.dart';
 import '../stt/openai_refine.dart';
+import '../stt/llm_key_store.dart';
 import '../stt/groq_key_store.dart';
 import '../stt/groq_stt.dart';
 import '../stt/openai_stt.dart';
@@ -179,6 +180,7 @@ class _HomePageState extends State<HomePage> {
     unawaited(Future.wait([
       ApiKeyStore.read(),
       SarvamKeyStore.read(),
+      GroqKeyStore.read(),
     ]));
     PendantPrefs.load().then((_) async {
       if (!mounted) {
@@ -629,14 +631,14 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
-    final key = await ApiKeyStore.read();
+    final key = await LlmKeyStore.readKey();
     if (key.isEmpty) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Add an OpenAI API key in Settings first.')),
+            content: Text('Add a Groq or OpenAI API key in Settings first.')),
       );
       return;
     }
@@ -747,9 +749,9 @@ class _HomePageState extends State<HomePage> {
       _toastSttFailed('Nothing to close today yet.');
       return null;
     }
-    final openaiKey = await ApiKeyStore.read();
-    if (openaiKey.isEmpty) {
-      _toastSttFailed('Add an OpenAI API key to close the day.');
+    final llmKey = await LlmKeyStore.readKey();
+    if (llmKey.isEmpty) {
+      _toastSttFailed('Add a Groq or OpenAI API key to close the day.');
       return null;
     }
     setState(() => _closingDay = true);
@@ -757,7 +759,7 @@ class _HomePageState extends State<HomePage> {
       final first = turns.first.spokenAt.toLocal();
       final last = turns.last.spokenAt.toLocal();
       final result = await _refine.cleanAndRecapDay(
-        apiKey: openaiKey,
+        apiKey: llmKey,
         dayKey: key,
         dateLabel: DateFormat.yMMMMd().format(start),
         rangeLabel: '${DateFormat.jm().format(first)} to '
@@ -1241,6 +1243,7 @@ class _HomePageState extends State<HomePage> {
       unawaited(Future.wait([
         ApiKeyStore.read(),
         SarvamKeyStore.read(),
+        GroqKeyStore.read(),
       ]));
       if (!resumeSession || _sessionId == null) {
         _sessionId = const Uuid().v4();
@@ -1314,9 +1317,7 @@ class _HomePageState extends State<HomePage> {
       _hadSpeechInChunk = true;
     }
     setState(() => _bytes = _ble.reassembler.pcmByteLength);
-    if (_usingDeviceMic || _noteUsingDeviceMic) {
-      _pushLevelFromPcm(last);
-    }
+    _pushLevelFromPcm(last);
     _syncDev();
     if (!_noteHolding && _ble.reassembler.pcmByteLength >= _maxChunkBytes) {
       Future.microtask(() => _rotateChunk());
@@ -1641,10 +1642,12 @@ class _HomePageState extends State<HomePage> {
       }
 
       final full = await File(wavPath).readAsBytes();
-      final pcm =
+      List<int> pcm =
           full.length > 44 && String.fromCharCodes(full.sublist(0, 4)) == 'RIFF'
               ? full.sublist(44)
               : full;
+      // Boost quiet audio from the chest microphone toward standard phone-mic level
+      pcm = boostPcmToTargetRms(pcm, targetRms: 2800, maxGain: 4.5);
       final gated = extractSpeech(
         pcm,
         energyFloor:

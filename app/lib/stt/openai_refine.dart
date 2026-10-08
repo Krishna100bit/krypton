@@ -46,6 +46,14 @@ class OpenAiRefine {
 
   final http.Client _client;
 
+  static bool isGroqKey(String key) => key.trim().startsWith('gsk_');
+
+  static String endpointFor(String key) =>
+      isGroqKey(key) ? 'https://api.groq.com/openai/v1/chat/completions' : _url;
+
+  static String modelFor(String key) =>
+      isGroqKey(key) ? 'openai/gpt-oss-120b' : refineModel;
+
   Future<RefineResult> refine({
     required String apiKey,
     required List<TranscriptSegment> segments,
@@ -76,22 +84,25 @@ class OpenAiRefine {
           'Do not translate. Do not invent. Keep speakers. Empty text means drop.\n')
       ..write(jsonEncode({'turns': turns}));
 
+    final targetUrl = endpointFor(apiKey);
+    final targetModel = modelFor(apiKey);
+
     final req = await _client
         .post(
-          Uri.parse(_url),
+          Uri.parse(targetUrl),
           headers: {
             'Authorization': 'Bearer $apiKey',
             'Content-Type': 'application/json',
           },
           body: jsonEncode({
-            'model': refineModel,
+            'model': targetModel,
             'temperature': 0,
             'response_format': {'type': 'json_object'},
             'messages': [
               {
                 'role': 'system',
                 'content':
-                    'You clean wearable-mic transcripts. You never add facts.',
+                    'You clean wearable-mic transcripts. You never add facts. Return a valid JSON object.',
               },
               {'role': 'user', 'content': user.toString()},
             ],
@@ -117,16 +128,19 @@ class OpenAiRefine {
       parsed = jsonDecode(raw) as Map<String, dynamic>;
     } catch (e) {
       debugPrint('refine JSON parse failed: $e');
+      final cost = isGroqKey(apiKey)
+          ? 0.0
+          : SttPricing.usd(
+              model: targetModel,
+              billedSeconds: 0,
+              inputTokens: inn,
+              outputTokens: out,
+            );
       return RefineResult(
         segments: segments,
         inputTokens: inn,
         outputTokens: out,
-        costUsd: SttPricing.usd(
-          model: refineModel,
-          billedSeconds: 0,
-          inputTokens: inn,
-          outputTokens: out,
-        ),
+        costUsd: cost,
       );
     }
     final list = parsed['turns'];
@@ -138,16 +152,19 @@ class OpenAiRefine {
         }
       }
     }
+    final cost = isGroqKey(apiKey)
+        ? 0.0
+        : SttPricing.usd(
+            model: targetModel,
+            billedSeconds: 0,
+            inputTokens: inn,
+            outputTokens: out,
+          );
     return RefineResult(
       segments: applyRefineTurns(original: segments, turns: maps),
       inputTokens: inn,
       outputTokens: out,
-      costUsd: SttPricing.usd(
-        model: refineModel,
-        billedSeconds: 0,
-        inputTokens: inn,
-        outputTokens: out,
-      ),
+      costUsd: cost,
     );
   }
 
@@ -231,19 +248,22 @@ class OpenAiRefine {
       summaryJson = parsed.json;
     }
 
-    final cost = SttPricing.usd(
-      model: refineModel,
-      billedSeconds: 0,
-      inputTokens: inn,
-      outputTokens: out,
-    );
+    final targetModel = modelFor(apiKey);
+    final cost = isGroqKey(apiKey)
+        ? 0.0
+        : SttPricing.usd(
+            model: targetModel,
+            billedSeconds: 0,
+            inputTokens: inn,
+            outputTokens: out,
+          );
     return DayCleanResult(
       segments: cleaned,
       recap: clipRecapToSpeech(
         recap: DayRecap.fromJson(
           dayKey: dayKey,
           json: summaryJson,
-          model: refineModel,
+          model: isGroqKey(apiKey) ? 'groq:$targetModel' : refineModel,
           costUsd: cost,
           updatedAt: DateTime.now().toUtc(),
         ),
@@ -294,15 +314,17 @@ class OpenAiRefine {
     required String user,
     required Duration timeout,
   }) async {
+    final targetUrl = endpointFor(apiKey);
+    final targetModel = modelFor(apiKey);
     final req = await _client
         .post(
-          Uri.parse(_url),
+          Uri.parse(targetUrl),
           headers: {
             'Authorization': 'Bearer $apiKey',
             'Content-Type': 'application/json',
           },
           body: jsonEncode({
-            'model': refineModel,
+            'model': targetModel,
             'temperature': 0.2,
             'response_format': {'type': 'json_object'},
             'messages': [
@@ -352,15 +374,17 @@ class OpenAiRefine {
       }
     }
     final recent = recentSpeech.trim();
+    final targetUrl = endpointFor(apiKey);
+    final targetModel = modelFor(apiKey);
     final req = await _client
         .post(
-          Uri.parse(_url),
+          Uri.parse(targetUrl),
           headers: {
             'Authorization': 'Bearer $apiKey',
             'Content-Type': 'application/json',
           },
           body: jsonEncode({
-            'model': refineModel,
+            'model': targetModel,
             'temperature': 0.2,
             'messages': [
               {
@@ -406,15 +430,17 @@ class OpenAiRefine {
     required String recap,
     required String transcript,
   }) async {
+    final targetUrl = endpointFor(apiKey);
+    final targetModel = modelFor(apiKey);
     final req = await _client
         .post(
-          Uri.parse(_url),
+          Uri.parse(targetUrl),
           headers: {
             'Authorization': 'Bearer $apiKey',
             'Content-Type': 'application/json',
           },
           body: jsonEncode({
-            'model': refineModel,
+            'model': targetModel,
             'temperature': 0.2,
             'messages': [
               {

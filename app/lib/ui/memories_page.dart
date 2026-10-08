@@ -7,7 +7,7 @@ import '../db/memory_chat.dart';
 import '../db/models.dart';
 import '../mem0/mem0_client.dart';
 import '../mem0/mem0_store.dart';
-import '../stt/api_key_store.dart';
+import '../stt/llm_key_store.dart';
 import '../stt/openai_refine.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -52,7 +52,7 @@ class _MemoriesPageState extends State<MemoriesPage> {
     try {
       final keys = await Future.wait([
         Mem0Store.readKey(),
-        ApiKeyStore.read(),
+        LlmKeyStore.readKey(),
       ]);
       if (!mounted) {
         return;
@@ -202,7 +202,7 @@ class _MemoriesPageState extends State<MemoriesPage> {
       return;
     }
     final mem0Key = (await Mem0Store.readKey()).trim();
-    final openaiKey = (await ApiKeyStore.read()).trim();
+    final llmKey = (await LlmKeyStore.readKey()).trim();
     if (!mounted) {
       return;
     }
@@ -219,10 +219,10 @@ class _MemoriesPageState extends State<MemoriesPage> {
       );
       return;
     }
-    if (openaiKey.isEmpty) {
+    if (llmKey.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Add an OpenAI API key in Settings first.')),
+            content: Text('Add a Groq or OpenAI API key in Settings first.')),
       );
       return;
     }
@@ -260,7 +260,7 @@ class _MemoriesPageState extends State<MemoriesPage> {
         turn.dayKeys = [];
       } else {
         turn.answer = await _refine.answerFromMemories(
-          apiKey: openaiKey,
+          apiKey: llmKey,
           question: q,
           memories: [
             for (final h in hits) (memory: h.memory, dayKey: h.dayKey),

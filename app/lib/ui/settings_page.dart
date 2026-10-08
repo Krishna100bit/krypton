@@ -453,12 +453,11 @@ class _SettingsPageState extends State<SettingsPage> {
       TextField(
         controller: _groq,
         obscureText: true,
-        decoration: InputDecoration(
+        decoration: const InputDecoration(
           labelText: 'Groq API key',
           hintText: 'gsk_...',
-          helperText: _engine == SttEngine.groq
-              ? 'Required for Groq Whisper transcription (console.groq.com).'
-              : 'Used when Groq Cloud is selected.',
+          helperText:
+              'Powers Whisper transcription & free AI meeting summaries (console.groq.com).',
         ),
       ),
       const SizedBox(height: 12),
@@ -480,8 +479,8 @@ class _SettingsPageState extends State<SettingsPage> {
         decoration: InputDecoration(
           labelText: 'OpenAI API key',
           helperText: _diarize
-              ? 'Required for diarization, recap, and ask-about-this-meeting.'
-              : 'Used for recap and ask-about-this-meeting.',
+              ? 'Required for diarization. Optional for recap/summary if Groq key is set.'
+              : 'Optional for recap and Q&A if Groq key is set.',
         ),
       ),
       const SizedBox(height: 12),
