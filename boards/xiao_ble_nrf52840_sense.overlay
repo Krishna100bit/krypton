@@ -1,0 +1,122 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Mic power on at boot. IMU regulator needs extra settle time; probe the
+ * LSM6DS3TR-C after boot (deferred-init in main).
+ *
+ * microSD SPI (assembly wiring, not the board silk SPI defaults):
+ *   CLK → D9 (P1.14), CMD/MOSI → D8 (P1.13), D0/MISO → D7 (P1.12),
+ *   D3/CS → D6 (P1.11).
+ */
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	msm261d3526hicpm-c-en {
+		regulator-boot-on;
+	};
+
+	lsm6ds3tr-c-en {
+		regulator-always-on;
+		startup-delay-us = <20000>;
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+		/* Ø6 tactile: COM → GND, NO → D1 (P0.03). Internal pull-up. */
+		user_btn: user_btn {
+			gpios = <&xiao_d 1 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			label = "USER";
+		};
+	};
+};
+
+/* Remap SPI2 off the default D8/D10/D9 onto the soldered D9/D8/D7 net. */
+&pinctrl {
+	spi2_default_sd: spi2_default_sd {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 1, 14)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 13)>,
+				<NRF_PSEL(SPIM_MISO, 1, 12)>;
+		};
+	};
+
+	spi2_sleep_sd: spi2_sleep_sd {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 1, 14)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 13)>,
+				<NRF_PSEL(SPIM_MISO, 1, 12)>;
+			low-power-enable;
+		};
+	};
+};
+
+/*
+ * Board UART0 defaults to D6 TX / D7 RX. Those are our SD CS / MISO.
+ * Console already uses USB CDC, so free the pins for SPI.
+ */
+&uart0 {
+	status = "disabled";
+};
+
+&xiao_spi {
+	status = "okay";
+	pinctrl-0 = <&spi2_default_sd>;
+	pinctrl-1 = <&spi2_sleep_sd>;
+	pinctrl-names = "default", "sleep";
+	cs-gpios = <&xiao_d 6 GPIO_ACTIVE_LOW>;
+
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		spi-max-frequency = <4000000>;
+
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+};
+
+/* WLY602030 LiPo: VBAT — 1 MΩ — P0.31 — 510 kΩ — P0.14.
+ * P0.14 must stay LOW while a cell is attached or P0.31 can exceed 3.6 V.
+ */
+&gpio0 {
+	bat-meas-en {
+		gpio-hog;
+		gpios = <14 0>;
+		output-low;
+		line-name = "bat-meas-en";
+	};
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@7 {
+		reg = <7>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;
+	};
+};
+
+dmic_dev: &pdm0 {
+	status = "okay";
+	/* Board DTS uses PCLK32M (HFINT). That clock is too jittery for STT. */
+	clock-source = "PCLK32M_HFXO";
+	queue-size = <8>;
+};
+
+&i2c0 {
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+};
+
+&lsm6ds3tr_c {
+	zephyr,deferred-init;
+};
