@@ -120,13 +120,17 @@ jobs:
             fi
           fi
 
-          # Ensure krypton.* and zephyr.* names are available
+          # Ensure krypton.* and zephyr.* names are both available without self-copy
           cd "$GITHUB_WORKSPACE/output"
           for ext in uf2 hex bin; do
             SRC=$(ls *.$ext 2>/dev/null | head -n 1)
             if [ -n "$SRC" ]; then
-              cp -u "$SRC" "krypton.$ext" 2>/dev/null || cp "$SRC" "krypton.$ext"
-              cp -u "$SRC" "zephyr.$ext" 2>/dev/null || cp "$SRC" "zephyr.$ext"
+              if [ "$SRC" != "krypton.$ext" ]; then
+                cp "$SRC" "krypton.$ext"
+              fi
+              if [ "$SRC" != "zephyr.$ext" ]; then
+                cp "$SRC" "zephyr.$ext"
+              fi
             fi
           done
 
