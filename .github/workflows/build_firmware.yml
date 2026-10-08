@@ -1,0 +1,82 @@
+name: Build Firmware (Krypton UF2)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Zephyr UF2 Firmware
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nrfconnect/sdk-nrf-toolchain:v3.4.0
+      options: --user root
+
+    env:
+      ACCEPT_JLINK_LICENSE: '1'
+
+    steps:
+      - name: Configure Git Safe Directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Checkout Firmware Source
+        uses: actions/checkout@v4
+        with:
+          path: app_source
+
+      - name: Cache nRF Connect SDK Workspace
+        uses: actions/cache@v4
+        id: cache-ncs
+        with:
+          path: ncs-workspace
+          key: ncs-v3.4.0-${{ runner.os }}
+
+      - name: Initialize NCS West Workspace (if not cached)
+        if: steps.cache-ncs.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ncs-workspace
+          cd ncs-workspace
+          west init -m https://github.com/nrfconnect/sdk-nrf --mr v3.4.0
+          west update --narrow -o=--depth=1
+          west zephyr-export
+
+      - name: Export Zephyr CMake (Cached)
+        if: steps.cache-ncs.outputs.cache-hit == 'true'
+        run: |
+          cd ncs-workspace
+          west zephyr-export
+
+      - name: Compile Krypton Firmware with West
+        run: |
+          cd ncs-workspace
+          west build -p always -b xiao_ble/nrf52840/sense -d "$GITHUB_WORKSPACE/build" "$GITHUB_WORKSPACE/app_source"
+
+      - name: Package Firmware Artifacts
+        run: |
+          ls -lh "$GITHUB_WORKSPACE/build/zephyr"
+          # Create friendly Krypton named copies alongside default Zephyr binaries
+          if [ -f "$GITHUB_WORKSPACE/build/zephyr/zephyr.uf2" ]; then
+            cp "$GITHUB_WORKSPACE/build/zephyr/zephyr.uf2" "$GITHUB_WORKSPACE/build/zephyr/krypton.uf2"
+          fi
+          if [ -f "$GITHUB_WORKSPACE/build/zephyr/zephyr.hex" ]; then
+            cp "$GITHUB_WORKSPACE/build/zephyr/zephyr.hex" "$GITHUB_WORKSPACE/build/zephyr/krypton.hex"
+          fi
+          if [ -f "$GITHUB_WORKSPACE/build/zephyr/zephyr.bin" ]; then
+            cp "$GITHUB_WORKSPACE/build/zephyr/zephyr.bin" "$GITHUB_WORKSPACE/build/zephyr/krypton.bin"
+          fi
+
+      - name: Upload UF2 & HEX Firmware Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: krypton-firmware-uf2
+          path: |
+            build/zephyr/krypton.uf2
+            build/zephyr/zephyr.uf2
+            build/zephyr/krypton.hex
+            build/zephyr/zephyr.hex
+            build/zephyr/krypton.bin
+            build/zephyr/zephyr.bin
+          if-no-files-found: error

@@ -13,7 +13,10 @@
 *.map
 *.stat
 *.ninja
+*.uf2
 .west/
+ncs-workspace/
+/ncs/
 
 # local captures and personal audio (never publish)
 *.wav
