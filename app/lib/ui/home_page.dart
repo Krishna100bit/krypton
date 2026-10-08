@@ -96,6 +96,9 @@ class _HomePageState extends State<HomePage> {
   bool _busy = false;
   bool _connected = false;
   bool _armed = false;
+  bool _paused = false;
+  DateTime? _pausedAt;
+  Duration _totalPausedDuration = Duration.zero;
   bool _usingDeviceMic = false;
   final _deviceMic = DeviceMic();
   bool _rotating = false;
@@ -265,13 +268,32 @@ class _HomePageState extends State<HomePage> {
     } else if (s.buttonSeq != 0 && s.buttonSeq != _btnSeqSeen) {
       _btnSeqSeen = s.buttonSeq;
       if (s.buttonEvent == 3) {
-        held = true;
+        if (_armed) {
+          // Long press on hardware button stops the meeting!
+          unawaited(_toggleMeeting());
+        } else {
+          held = true;
+        }
       } else if (s.buttonEvent == 4) {
         held = false;
       } else if (s.buttonEvent == 2) {
         unawaited(_toggleFindPhone());
       } else if (s.buttonEvent == 1 && !_noteHolding && !_busy) {
-        unawaited(_toggleMeeting());
+        // Single press on hardware button: Start -> Pause -> Resume
+        if (!_armed) {
+          unawaited(_toggleMeeting());
+        } else if (!_paused) {
+          _pauseMeeting();
+        } else {
+          _resumeMeeting();
+        }
+      }
+    }
+    if (_armed) {
+      if (s.recordingPaused && !_paused) {
+        _pauseMeeting();
+      } else if (s.recordingActive && _paused) {
+        _resumeMeeting();
       }
     }
     if (held && !_noteHolding) {
@@ -861,7 +883,11 @@ class _HomePageState extends State<HomePage> {
     if (start == null) {
       return '';
     }
-    final d = DateTime.now().difference(start);
+    final now = _paused && _pausedAt != null ? _pausedAt! : DateTime.now();
+    var d = now.difference(start) - _totalPausedDuration;
+    if (d.isNegative) {
+      d = Duration.zero;
+    }
     final m = d.inMinutes.clamp(0, 99 * 60);
     final s = d.inSeconds.remainder(60);
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
@@ -1056,7 +1082,7 @@ class _HomePageState extends State<HomePage> {
           _connected = true;
           _busy = false;
           _status =
-              'Reconnected to ${_ble.device?.platformName ?? 'OpenPendant'}.';
+              'Reconnected to ${_ble.device?.platformName ?? 'Krypton'}.';
         });
         unawaited(
           PendantPrefs.markSeen(
@@ -1173,6 +1199,37 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _pauseMeeting() {
+    if (!_armed || _paused) {
+      return;
+    }
+    setState(() {
+      _paused = true;
+      _pausedAt = DateTime.now();
+    });
+    if (_connected) {
+      unawaited(_ble.sendRecordState(PendantBle.ctrlRecordPause));
+    }
+    _refreshArmedStatus();
+  }
+
+  void _resumeMeeting() {
+    if (!_armed || !_paused) {
+      return;
+    }
+    if (_pausedAt != null) {
+      _totalPausedDuration += DateTime.now().difference(_pausedAt!);
+      _pausedAt = null;
+    }
+    setState(() {
+      _paused = false;
+    });
+    if (_connected) {
+      unawaited(_ble.sendRecordState(PendantBle.ctrlRecordStart));
+    }
+    _refreshArmedStatus();
+  }
+
   Future<void> _arm({required bool resumeSession}) async {
     setState(() {
       _busy = true;
@@ -1213,7 +1270,13 @@ class _HomePageState extends State<HomePage> {
       _armTick?.cancel();
       _armTick = Timer.periodic(
           const Duration(milliseconds: 200), (_) => _onArmTick());
+      _paused = false;
+      _pausedAt = null;
+      _totalPausedDuration = Duration.zero;
       setState(() => _armed = true);
+      if (_connected) {
+        unawaited(_ble.sendRecordState(PendantBle.ctrlRecordStart));
+      }
       _refreshArmedStatus();
     } catch (e) {
       _usingDeviceMic = false;
@@ -1234,7 +1297,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onPcm() {
-    if (!mounted || (!_armed && !_noteHolding)) {
+    if (!mounted || (!_armed && !_noteHolding) || (_armed && _paused)) {
       return;
     }
     final last = _ble.reassembler.lastComplete;
@@ -1258,7 +1321,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onArmTick() {
-    if (!_armed || _rotating || _noteHolding) {
+    if (!_armed || _rotating || _noteHolding || _paused) {
       return;
     }
     final now = DateTime.now();
@@ -1305,9 +1368,10 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     final imu = _dbg == null ? '…' : (_dbg!.imuSleep ? 'Resting' : 'Listening');
+    final pLabel = _paused ? 'PAUSED · ' : '';
     setState(() {
       _status =
-          '${_wearerLabel()}${_dbg == null ? '' : ' · $imu'} · ${_sttEngineLabel()} · queue ${_sttQueue.length + (_sttBusy ? 1 : 0)}';
+          '$pLabel${_wearerLabel()}${_dbg == null ? '' : ' · $imu'} · ${_sttEngineLabel()} · queue ${_sttQueue.length + (_sttBusy ? 1 : 0)}';
     });
     _syncDev();
   }
@@ -1374,8 +1438,14 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _busy = true;
       _armed = false;
+      _paused = false;
+      _pausedAt = null;
+      _totalPausedDuration = Duration.zero;
       _status = flush ? 'Stopping…' : 'Disarmed.';
     });
+    if (_connected) {
+      unawaited(_ble.sendRecordState(PendantBle.ctrlRecordStop));
+    }
     await Future<void>.delayed(Duration.zero);
     try {
       if (flush) {
@@ -2379,7 +2449,7 @@ class _HomePageState extends State<HomePage> {
       return 'Turn Bluetooth on, then tap Connect pendant.';
     }
     if (s.contains('permission')) {
-      return 'Allow Bluetooth for OpenPendant, then tap Connect pendant.';
+      return 'Allow Bluetooth for Krypton, then tap Connect pendant.';
     }
     return s;
   }
@@ -2454,7 +2524,7 @@ class _HomePageState extends State<HomePage> {
     setState(() => _busy = true);
     Future<String?> attempt() async {
       if (!await _blePerms()) {
-        return 'Allow Bluetooth for OpenPendant in System Settings, then try again.';
+        return 'Allow Bluetooth for Krypton in System Settings, then try again.';
       }
       try {
         await _ble.reconnectKnown();
@@ -2484,7 +2554,7 @@ class _HomePageState extends State<HomePage> {
         const Duration(seconds: 35),
         onTimeout: () =>
             'Bluetooth did not respond. In System Settings, open Privacy and '
-            'Security, then Bluetooth, and make sure OpenPendant is allowed.',
+            'Security, then Bluetooth, and make sure Krypton is allowed.',
       );
     } catch (e) {
       return _friendlyBleError(e);
@@ -3095,10 +3165,14 @@ class _HomePageState extends State<HomePage> {
         children: [
           Expanded(
             child: _captureCard(
-              icon: _armed ? LucideIcons.audioLines : LucideIcons.mic,
-              title: _armed ? 'Recording' : 'Start meeting',
+              icon: _armed
+                  ? (_paused ? LucideIcons.pause : LucideIcons.audioLines)
+                  : LucideIcons.mic,
+              title: _armed
+                  ? (_paused ? 'Meeting paused' : 'Recording')
+                  : 'Start meeting',
               sub: _armed
-                  ? '${_meetingElapsed()} · tap to open'
+                  ? '${_meetingElapsed()} · ${_paused ? 'Paused' : 'Recording'} · tap to open'
                   : 'Records and transcribes live',
               filled: true,
               active: _armed,
@@ -3767,9 +3841,16 @@ class _HomePageState extends State<HomePage> {
                 label: 'Mark',
                 onTap: _markMoment,
               ),
-              const SizedBox(width: 30),
+              const SizedBox(width: 18),
+              _liveCircleButton(
+                icon: _paused ? LucideIcons.play : LucideIcons.pause,
+                label: _paused ? 'Resume' : 'Pause',
+                active: _paused,
+                onTap: _busy ? null : (_paused ? _resumeMeeting : _pauseMeeting),
+              ),
+              const SizedBox(width: 18),
               _stopButton(),
-              const SizedBox(width: 30),
+              const SizedBox(width: 18),
               _liveCircleButton(
                 icon: _noteHolding ? LucideIcons.circleStop : LucideIcons.mic,
                 label: 'Note',
@@ -3783,8 +3864,8 @@ class _HomePageState extends State<HomePage> {
           padding: const EdgeInsets.only(bottom: 16, top: 2),
           child: Text(
             _connected
-                ? 'Stop ends the meeting, or press the pendant once'
-                : 'Stop ends the meeting',
+                ? 'Single press button on pendant to ${_paused ? 'resume' : 'pause'}, hold to end'
+                : 'Pause to hold, Stop to end the meeting',
             textAlign: TextAlign.center,
             style: AppText.sub.copyWith(fontSize: 11.5),
           ),
@@ -3797,16 +3878,33 @@ class _HomePageState extends State<HomePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0x14FFFFFF),
+        color: _paused ? const Color(0x22FFA500) : const Color(0x14FFFFFF),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(
+          color: _paused ? const Color(0x88FFA500) : AppColors.line,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _PulseDot(),
+          _paused
+              ? Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFFA500),
+                    shape: BoxShape.circle,
+                  ),
+                )
+              : const _PulseDot(),
           const SizedBox(width: 7),
-          Text('LIVE', style: AppText.micro.copyWith(color: AppColors.ink)),
+          Text(
+            _paused ? 'PAUSED' : 'LIVE',
+            style: AppText.micro.copyWith(
+              color: _paused ? const Color(0xFFFFA500) : AppColors.ink,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );

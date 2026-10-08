@@ -577,7 +577,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ? null
               : () async {
                   await Clipboard.setData(
-                    const ClipboardData(text: 'OpenPendant paste test'),
+                    const ClipboardData(text: 'Krypton paste test'),
                   );
                   final r = await pasteIntoCursorComposer(autoSend: false);
                   if (!mounted) {

@@ -215,7 +215,7 @@ class LocalWhisperStt {
     final client = http.Client();
     try {
       final req = http.Request('GET', url);
-      req.headers['User-Agent'] = 'OpenPendant';
+      req.headers['User-Agent'] = 'Krypton';
       final res = await client.send(req).timeout(const Duration(minutes: 30));
       if (res.statusCode >= 400) {
         throw Exception('Model download ${res.statusCode} for ${dest.path}');

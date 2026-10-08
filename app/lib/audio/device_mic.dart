@@ -34,7 +34,7 @@ class DeviceMic {
   }) async {
     if (!await _rec.hasPermission()) {
       throw Exception(
-        'Allow Microphone for OpenPendant in System Settings → Privacy & Security.',
+        'Allow Microphone for Krypton in System Settings → Privacy & Security.',
       );
     }
     if (running) {

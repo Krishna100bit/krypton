@@ -84,9 +84,19 @@ static int last_volume;
 static int64_t locate_until;
 
 /* Control byte 0 == 2 → SD card R/W self-test (Developer). */
-#define CTRL_LOCATE_OFF 0
-#define CTRL_LOCATE_ON  1
-#define CTRL_SD_TEST    2
+#define CTRL_LOCATE_OFF    0
+#define CTRL_LOCATE_ON     1
+#define CTRL_SD_TEST       2
+#define CTRL_RECORD_START  3
+#define CTRL_RECORD_PAUSE  4
+#define CTRL_RECORD_STOP   5
+
+enum pendant_record_state {
+	REC_STATE_IDLE = 0,
+	REC_STATE_RECORDING = 1,
+	REC_STATE_PAUSED = 2,
+};
+static volatile enum pendant_record_state rec_state = REC_STATE_IDLE;
 
 #define SD_RES_IDLE       0
 #define SD_RES_BUSY       1
@@ -100,7 +110,7 @@ static int64_t locate_until;
 #define SD_DISK_NAME "SD"
 #define SD_MOUNT_PT  "/SD:"
 #define SD_TEST_PATH "/SD:/opentest.txt"
-#define SD_TEST_MARK "OpenPendant SD OK\n"
+#define SD_TEST_MARK "Krypton SD OK\n"
 
 static uint8_t sd_result = SD_RES_IDLE;
 static uint8_t sd_detail;
@@ -164,7 +174,7 @@ static void leds_update(void)
 	if (locate_active()) {
 		const bool flash = (k_uptime_get() % 360) < 180;
 
-		if (pcm_notify_enabled || btn_note_held) {
+		if (pcm_notify_enabled || btn_note_held || rec_state != REC_STATE_IDLE) {
 			led_set(&led, 1);
 			led_set(&led_green, 0);
 			led_set(&led_blue, flash);
@@ -175,14 +185,31 @@ static void leds_update(void)
 		led_set(&led_blue, !flash);
 		return;
 	}
-	if (pcm_notify_enabled || btn_note_held) {
+
+	if (rec_state == REC_STATE_RECORDING || (pcm_notify_enabled && rec_state != REC_STATE_PAUSED)) {
+		/* Recording active: Red LED solid ON */
 		led_set(&led_green, 0);
-		led_set(&led, pcm_notify_enabled ? 1 : 0);
-		if (!btn_note_held) {
-			led_set(&led_blue, 0);
-		}
+		led_set(&led, 1);
+		led_set(&led_blue, btn_note_held ? 1 : 0);
 		return;
 	}
+
+	if (rec_state == REC_STATE_PAUSED) {
+		/* Recording paused: Blue LED pulses (500 ms) */
+		led_set(&led, 0);
+		led_set(&led_green, 0);
+		led_set(&led_blue, (k_uptime_get() % 1000) < 500 ? 1 : 0);
+		return;
+	}
+
+	if (btn_note_held) {
+		led_set(&led_green, 0);
+		led_set(&led, 0);
+		led_set(&led_blue, 1);
+		return;
+	}
+
+	/* Idle: Heartbeat green (250 ms every 2s) */
 	led_set(&led, 0);
 	led_set(&led_green, (k_uptime_get() % 2000) < 250 ? 1 : 0);
 	led_set(&led_blue, 0);
@@ -259,16 +286,32 @@ static void btn_work_fn(struct k_work *work)
 	    (now - btn_press_ms) >= BTN_LONG_MS) {
 		btn_long_done = true;
 		btn_clicks = 0;
-		btn_note_held = true;
-		mic_set_run(true);
-		note_led(true);
-		leds_update();
-		btn_emit(BTN_EV_LONG);
+		if (rec_state != REC_STATE_IDLE) {
+			/* Long press while recording or paused: END session */
+			rec_state = REC_STATE_IDLE;
+			leds_update();
+			btn_emit(BTN_EV_LONG);
+		} else {
+			btn_note_held = true;
+			mic_set_run(true);
+			note_led(true);
+			leds_update();
+			btn_emit(BTN_EV_LONG);
+		}
 	}
 
 	if (!btn_pressed && btn_clicks == 1 &&
 	    (now - btn_release_ms) >= BTN_DOUBLE_MS) {
 		btn_clicks = 0;
+		/* Single click: cycle IDLE -> RECORDING -> PAUSED -> RECORDING */
+		if (rec_state == REC_STATE_IDLE) {
+			rec_state = REC_STATE_RECORDING;
+		} else if (rec_state == REC_STATE_RECORDING) {
+			rec_state = REC_STATE_PAUSED;
+		} else if (rec_state == REC_STATE_PAUSED) {
+			rec_state = REC_STATE_RECORDING;
+		}
+		leds_update();
 		btn_emit(BTN_EV_SINGLE);
 	}
 }
@@ -618,7 +661,9 @@ static void status_fill(int volume)
 			(device_is_ready(imu_dev) ? 4 : 0) |
 			(imu_fetch_ok ? 8 : 0) |
 			(nrf_power_usbregstatus_vbusdet_get(NRF_POWER) ? 16 : 0) |
-			(btn_note_held ? 32 : 0);
+			(btn_note_held ? 32 : 0) |
+			(rec_state == REC_STATE_RECORDING ? 64 : 0) |
+			(rec_state == REC_STATE_PAUSED ? 128 : 0);
 	sys_put_le16((uint16_t)v, &status_buf[1]);
 	status_buf[3] = imu_still_hits;
 	sys_put_le16(battery_sample_mv(), &status_buf[4]);
@@ -664,9 +709,22 @@ static ssize_t control_write(struct bt_conn *conn,
 	if (p[0] == CTRL_LOCATE_ON) {
 		locate_until = k_uptime_get() + 60000;
 		printk("Locate ON\n");
-	} else {
+	} else if (p[0] == CTRL_LOCATE_OFF) {
 		locate_until = 0;
 		printk("Locate OFF\n");
+	} else if (p[0] == CTRL_RECORD_START) {
+		rec_state = REC_STATE_RECORDING;
+		mic_set_run(true);
+		printk("Control: RECORD_START\n");
+		status_notify(last_volume);
+	} else if (p[0] == CTRL_RECORD_PAUSE) {
+		rec_state = REC_STATE_PAUSED;
+		printk("Control: RECORD_PAUSE\n");
+		status_notify(last_volume);
+	} else if (p[0] == CTRL_RECORD_STOP) {
+		rec_state = REC_STATE_IDLE;
+		printk("Control: RECORD_STOP\n");
+		status_notify(last_volume);
 	}
 	leds_update();
 	return len;
@@ -742,6 +800,9 @@ static int pcm_notify_chunk(const uint8_t *pcm, size_t pcm_len)
 	int err = 0;
 
 	if (!pcm_notify_enabled || current_conn == NULL) {
+		return 0;
+	}
+	if (rec_state == REC_STATE_PAUSED) {
 		return 0;
 	}
 	if (imu_sleep && !btn_note_held) {
@@ -904,6 +965,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	printk("BLE disconnected (reason 0x%02x)\n", reason);
 	pcm_notify_enabled = false;
 	status_notify_enabled = false;
+	rec_state = REC_STATE_IDLE;
 	btn_note_held = false;
 	locate_until = 0;
 	note_led(false);
@@ -1005,7 +1067,7 @@ int main(void)
 	}
 	btn_setup();
 
-	printk("Booting OpenPendant (GATT PCM stream)...\n");
+	printk("Booting Krypton (GATT PCM stream)...\n");
 
 	if (battery_setup() == 0) {
 		printk("VBAT ~%u mV\n", battery_sample_mv());

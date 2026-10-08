@@ -28,7 +28,7 @@ class VoicesPage extends StatefulWidget {
 }
 
 class _VoicesPageState extends State<VoicesPage> {
-  static const _script = 'Hello. This is my voice sample for OpenPendant. '
+  static const _script = 'Hello. This is my voice sample for Krypton. '
       'I am speaking clearly at a normal pace so you can tell who is talking later. '
       'The weather is fine today, and I am glad to record this. Thank you.';
 

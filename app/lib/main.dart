@@ -17,15 +17,16 @@ Future<void> main() async {
   await migrateMacosSandboxData();
   await deleteLegacyGemmaCache();
   await NoteReminders.init();
-  runApp(const OpenPendantApp());
+  runApp(const KryptonApp());
 }
 
-class OpenPendantApp extends StatelessWidget {
-  const OpenPendantApp({super.key});
+class KryptonApp extends StatelessWidget {
+  const KryptonApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'Krypton',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
       theme: openPendantTheme(),

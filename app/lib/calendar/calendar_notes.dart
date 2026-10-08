@@ -22,7 +22,7 @@ Future<CalendarNoteResult> addNoteToGoogleCalendar(String note) async {
     final created = await CalendarApi(client).events.insert(
           Event(
             summary: calendarEventTitle(body),
-            description: '$body\n\nOpenPendant',
+            description: '$body\n\nKrypton',
             start: EventDateTime(dateTime: start, timeZone: 'UTC'),
             end: EventDateTime(dateTime: end, timeZone: 'UTC'),
           ),

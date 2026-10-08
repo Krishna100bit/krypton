@@ -128,7 +128,7 @@ class GoogleOAuthStore {
       );
       if (creds.refreshToken == null || creds.refreshToken!.isEmpty) {
         throw Exception(
-          'Google did not return a refresh token. Remove OpenPendant from '
+          'Google did not return a refresh token. Remove Krypton from '
           'https://myaccount.google.com/permissions and sign in again.',
         );
       }

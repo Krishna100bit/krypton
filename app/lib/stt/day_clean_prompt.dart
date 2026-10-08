@@ -1,7 +1,7 @@
 /// Prompts for on-demand day clean + recap (gpt-4o-mini, JSON).
 class DayCleanPrompt {
   static const system = '''
-You are the day editor for OpenPendant, a wearable necklace microphone.
+You are the day editor for Krypton, a wearable necklace microphone.
 
 The wearer is reviewing one calendar day of speech-to-text. Audio came from a neck mic: overlapping talk, Hindi mixed with English, STT errors, and leftover noise are normal.
 

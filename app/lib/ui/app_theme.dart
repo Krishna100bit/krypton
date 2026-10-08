@@ -139,6 +139,8 @@ class AppText {
   );
 }
 
+ThemeData kryptonTheme() => openPendantTheme();
+
 ThemeData openPendantTheme() {
   final base = ThemeData(
     useMaterial3: true,

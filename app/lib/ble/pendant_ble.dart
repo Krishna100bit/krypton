@@ -24,6 +24,8 @@ class PendantStatus {
     this.buttonEvent = 0,
     this.buttonSeq = 0,
     this.noteHeld = false,
+    this.recordingActive = false,
+    this.recordingPaused = false,
     this.sdResult = 0,
     this.sdDetail = 0,
   });
@@ -40,6 +42,8 @@ class PendantStatus {
   final int buttonEvent;
   final int buttonSeq;
   final bool noteHeld;
+  final bool recordingActive;
+  final bool recordingPaused;
   final int sdResult;
   final int sdDetail;
 
@@ -146,6 +150,8 @@ class PendantStatus {
       buttonEvent: data.length >= 8 ? data[6] : 0,
       buttonSeq: data.length >= 8 ? data[7] : 0,
       noteHeld: (flags & 32) != 0,
+      recordingActive: (flags & 64) != 0,
+      recordingPaused: (flags & 128) != 0,
       sdResult: data.length >= 10 ? data[8] : 0,
       sdDetail: data.length >= 10 ? data[9] : 0,
     );
@@ -154,7 +160,7 @@ class PendantStatus {
 
 bool isPendantName(String? name) {
   final n = (name ?? '').toLowerCase();
-  return n == 'openpendant' || n == 'ai pendant' || n.contains('pendant');
+  return n.contains('krypton') || n == 'openpendant' || n == 'ai pendant' || n.contains('pendant');
 }
 
 class PendantBle {
@@ -194,7 +200,7 @@ class PendantBle {
           throw Exception('Turn Bluetooth on, then tap Connect pendant.');
         case BluetoothAdapterState.unauthorized:
           throw Exception(
-            'Allow Bluetooth for OpenPendant, then tap Connect pendant.',
+            'Allow Bluetooth for Krypton, then tap Connect pendant.',
           );
         default:
           throw Exception(
@@ -462,7 +468,18 @@ class PendantBle {
 
   /// Run the pendant SD card mount / write / read self-test.
   Future<bool> runSdTest() async {
-    return _writeControl([2]);
+    return _writeControl([1]);
+  }
+
+  static const ctrlLocateOff = 0;
+  static const ctrlLocateOn = 1;
+  static const ctrlSdTest = 2;
+  static const ctrlRecordStart = 3;
+  static const ctrlRecordPause = 4;
+  static const ctrlRecordStop = 5;
+
+  Future<bool> sendRecordState(int state) {
+    return _writeControl([state]);
   }
 
   Future<bool> _writeControl(List<int> payload) async {

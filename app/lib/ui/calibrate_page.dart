@@ -27,7 +27,7 @@ class CalibratePage extends StatefulWidget {
 
 class _CalibratePageState extends State<CalibratePage> {
   static const _script =
-      'Hello. I am wearing OpenPendant the way I will all day. '
+      'Hello. I am wearing Krypton the way I will all day. '
       'This is my normal speaking voice at my usual distance from the mic. '
       'Please use this sample so soft speech is still detected. Thank you.';
 

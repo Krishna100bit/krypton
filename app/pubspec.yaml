@@ -1,5 +1,5 @@
 name: openpendant
-description: OpenPendant phone host — BLE PCM, OpenAI STT, local clips
+description: Krypton phone host — BLE PCM, AI STT, meeting intelligence
 publish_to: "none"
 version: 0.1.0+1
 

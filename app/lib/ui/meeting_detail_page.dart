@@ -575,7 +575,7 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Ask OpenPendant',
+              'Ask Krypton',
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             if (_question != null) ...[
