@@ -302,7 +302,7 @@ List<Mem0Hit> parseMem0Hits(Object? raw) {
 extension DayRecapMem0 on DayRecap {
   String mem0Pack(String dateLabel) {
     final buf = StringBuffer()
-      ..writeln('OpenPendant day recap for $dateLabel (day_key=$dayKey).');
+      ..writeln('Krypton day recap for $dateLabel (day_key=$dayKey).');
     if (updatedAt != null) {
       buf.writeln('Summarized: ${updatedAt!.toUtc().toIso8601String()}');
     }

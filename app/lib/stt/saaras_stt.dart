@@ -230,19 +230,32 @@ bool isSaarasDurationError(Object error) {
 
 String friendlySaarasError(Object error) {
   final text = error.toString();
+  final lower = text.toLowerCase();
   if (isSaarasAuthError(error)) {
     return 'Sarvam could not read the saved key. Please retry.';
   }
   if (isSaarasDurationError(error)) {
     return 'That clip was too long for Sarvam in one piece. Try again — longer notes are split automatically.';
   }
-  if (text.toLowerCase().contains('timeout')) {
+  if (lower.contains('timeout')) {
     return 'Sarvam timed out. The clip can be retried.';
   }
+  if (lower.contains('socketexception') ||
+      lower.contains('failed host lookup') ||
+      lower.contains('network is unreachable') ||
+      lower.contains('connection refused') ||
+      lower.contains('clientexception')) {
+    return 'Network error: could not connect to Sarvam API.';
+  }
   final status = RegExp(r'REST (\d{3})').firstMatch(text)?.group(1);
-  return status == null
-      ? 'Transcription failed. Please retry.'
-      : 'Sarvam transcription failed ($status).';
+  if (status != null) {
+    return 'Sarvam transcription failed ($status).';
+  }
+  final clean = text.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+  if (clean.length > 70) {
+    return '${clean.substring(0, 67)}…';
+  }
+  return clean.isNotEmpty ? clean : 'Transcription failed. Please retry.';
 }
 
 /// REST has no speaker-reference upload. Map enrolled People onto Saaras

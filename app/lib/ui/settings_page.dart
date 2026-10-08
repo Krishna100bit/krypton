@@ -10,6 +10,7 @@ import '../mem0/mem0_store.dart';
 import '../notes/note_prefs.dart';
 import '../stt/api_key_store.dart';
 import '../stt/cursor_prefs.dart';
+import '../stt/groq_key_store.dart';
 import '../stt/local_whisper_stt.dart';
 import '../stt/sarvam_key_store.dart';
 import '../stt/stt_prefs.dart';
@@ -40,9 +41,10 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _key = TextEditingController();
   final _sarvam = TextEditingController();
+  final _groq = TextEditingController();
   final _mem0 = TextEditingController();
   bool _diarize = true;
-  SttEngine _engine = SttEngine.saaras;
+  SttEngine _engine = SttEngine.groq;
   bool _whisperReady = false;
   bool _whisperBusy = false;
   int _whisperGot = 0;
@@ -63,6 +65,7 @@ class _SettingsPageState extends State<SettingsPage> {
     Future.wait([
       ApiKeyStore.read(),
       SarvamKeyStore.read(),
+      GroqKeyStore.read(),
       Mem0Store.readKey(),
       SttPrefs.load(),
       CursorPrefs.load(),
@@ -71,7 +74,8 @@ class _SettingsPageState extends State<SettingsPage> {
     ]).then((vals) {
       _key.text = vals[0] as String;
       _sarvam.text = vals[1] as String;
-      _mem0.text = vals[2] as String;
+      _groq.text = vals[2] as String;
+      _mem0.text = vals[3] as String;
       _diarize = SttPrefs.diarize;
       _engine = SttPrefs.engine;
       _cursorOn = CursorPrefs.enabled;
@@ -90,6 +94,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _key.dispose();
     _sarvam.dispose();
+    _groq.dispose();
     _mem0.dispose();
     super.dispose();
   }
@@ -100,6 +105,9 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     if (allowClear || _sarvam.text.trim().isNotEmpty) {
       await SarvamKeyStore.write(_sarvam.text);
+    }
+    if (allowClear || _groq.text.trim().isNotEmpty) {
+      await GroqKeyStore.write(_groq.text);
     }
     await SttPrefs.save(diarize: _diarize, engine: _engine);
     await CursorPrefs.save(
@@ -332,13 +340,29 @@ class _SettingsPageState extends State<SettingsPage> {
       Text('TRANSCRIPTION', style: AppText.micro),
       const SizedBox(height: 8),
       Text(
-        'Cloud uses Sarvam Saaras v4. On-device uses Qwen3-ASR 0.6B (2026). Both save the model text as returned — Hindi stays in Devanagari when that is what came back.',
+        'Groq uses Whisper Large V3 Turbo (ultra fast). Sarvam uses Saaras v4 (Hindi/Hinglish). On-device uses Qwen3-ASR 0.6B.',
         style: AppText.sub.copyWith(fontSize: 12),
       ),
       const SizedBox(height: 10),
       ListTile(
         contentPadding: EdgeInsets.zero,
-        title: const Text('Cloud (Saaras)'),
+        title: const Text('Groq Cloud (Whisper Large V3 Turbo)'),
+        subtitle: const Text(
+          'Ultra-fast LPU transcription (console.groq.com). Free tier available, highly recommended for English.',
+        ),
+        leading: Icon(
+          _engine == SttEngine.groq
+              ? LucideIcons.circleDot
+              : LucideIcons.circle,
+          size: 18,
+          color:
+              _engine == SttEngine.groq ? AppColors.accent : AppColors.faint,
+        ),
+        onTap: !_loaded ? null : () => unawaited(_setEngine(SttEngine.groq)),
+      ),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Cloud (Sarvam Saaras v4)'),
         subtitle:
             const Text('Needs a Sarvam key. Best for Hindi and code-switch.'),
         leading: Icon(
@@ -427,6 +451,18 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       const SizedBox(height: 14),
       TextField(
+        controller: _groq,
+        obscureText: true,
+        decoration: InputDecoration(
+          labelText: 'Groq API key',
+          hintText: 'gsk_...',
+          helperText: _engine == SttEngine.groq
+              ? 'Required for Groq Whisper transcription (console.groq.com).'
+              : 'Used when Groq Cloud is selected.',
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
         controller: _sarvam,
         obscureText: true,
         decoration: InputDecoration(
@@ -434,7 +470,7 @@ class _SettingsPageState extends State<SettingsPage> {
           hintText: 'indus.sarvam.ai',
           helperText: _engine == SttEngine.local
               ? 'Not used while on-device Whisper is selected.'
-              : 'Required for cloud transcripts.',
+              : 'Required for Sarvam cloud transcripts.',
         ),
       ),
       const SizedBox(height: 12),

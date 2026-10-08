@@ -32,6 +32,8 @@ import '../stt/cursor_command.dart';
 import '../stt/cursor_prefs.dart';
 import '../macos/cursor_composer.dart';
 import '../stt/openai_refine.dart';
+import '../stt/groq_key_store.dart';
+import '../stt/groq_stt.dart';
 import '../stt/openai_stt.dart';
 import '../stt/local_whisper_stt.dart';
 import '../stt/saaras_stt.dart';
@@ -86,6 +88,7 @@ class _HomePageState extends State<HomePage> {
   final _store = ClipStore();
   final _stt = OpenAiStt();
   final _saaras = SaarasStt();
+  final _groq = GroqStt();
   final _whisper = LocalWhisperStt();
   final _refine = OpenAiRefine();
   final _dev = DeveloperLive();
@@ -1531,6 +1534,9 @@ class _HomePageState extends State<HomePage> {
     if (SttPrefs.engine == SttEngine.local) {
       return 'Qwen3-ASR (on-device)';
     }
+    if (SttPrefs.engine == SttEngine.groq) {
+      return 'Groq Whisper Turbo';
+    }
     return SttPrefs.diarize ? 'Saaras+diarize' : 'Saaras v4';
   }
 
@@ -1614,14 +1620,20 @@ class _HomePageState extends State<HomePage> {
     final wavPath = clip.wavPath;
     final openaiKey = await ApiKeyStore.read();
     final sarvamKey = await SarvamKeyStore.read();
+    final groqKey = await GroqKeyStore.read();
     if (wavPath == null || !File(wavPath).existsSync()) {
       _buttonNoteIds.remove(clip.id);
       await _store.upsertClip(clip.copyWith(status: 'error'));
       return;
     }
     try {
-      final local = SttPrefs.engine == SttEngine.local;
-      if (!local && sarvamKey.isEmpty) {
+      if (SttPrefs.engine == SttEngine.groq && groqKey.isEmpty) {
+        _buttonNoteIds.remove(clip.id);
+        await _store.upsertClip(clip.copyWith(status: 'error'));
+        _toastSttFailed('No Groq API key. Add it in Settings.');
+        return;
+      }
+      if (SttPrefs.engine == SttEngine.saaras && sarvamKey.isEmpty) {
         _buttonNoteIds.remove(clip.id);
         await _store.upsertClip(clip.copyWith(status: 'error'));
         _toastSttFailed('No Sarvam API key. Add it in Settings.');
@@ -1692,6 +1704,17 @@ class _HomePageState extends State<HomePage> {
           }
           words = await _whisper.transcribe(
             wav: wav,
+            startedAt: clip.startedAt,
+            speech: speech,
+          );
+        } catch (e) {
+          wordsErr = e;
+        }
+      } else if (SttPrefs.engine == SttEngine.groq) {
+        try {
+          words = await _groq.transcribe(
+            wav: wav,
+            apiKey: groqKey,
             startedAt: clip.startedAt,
             speech: speech,
           );
@@ -1825,13 +1848,31 @@ class _HomePageState extends State<HomePage> {
         fullText: primary.text,
         clipId: clip.id,
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('Transcription error: $e\n$st');
       _buttonNoteIds.remove(clip.id);
       await _store.upsertClip(clip.copyWith(status: 'error'));
+      final errStr = e.toString();
+      final errLower = errStr.toLowerCase();
+      String toast;
+      if (errLower.contains('download the on-device model')) {
+        toast = 'Download the on-device model in Settings first.';
+      } else if (errLower.contains('socketexception') ||
+          errLower.contains('failed host lookup') ||
+          errLower.contains('network is unreachable')) {
+        toast = 'No internet connection to reach transcription server.';
+      } else if (errLower.contains('groq') ||
+          SttPrefs.engine == SttEngine.groq) {
+        toast = friendlyGroqError(e);
+      } else if (errLower.contains('saaras') ||
+          SttPrefs.engine == SttEngine.saaras) {
+        toast = friendlySaarasError(e);
+      } else {
+        final clean = errStr.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+        toast = clean.length > 70 ? '${clean.substring(0, 67)}…' : clean;
+      }
       _toastSttFailed(
-        e.toString().toLowerCase().contains('saaras')
-            ? friendlySaarasError(e)
-            : 'Transcription failed. Please retry.',
+        toast.isNotEmpty ? toast : 'Transcription failed. Please retry.',
       );
     } finally {
       await _discardClipAudio(clip);
@@ -2803,7 +2844,7 @@ class _HomePageState extends State<HomePage> {
           Text.rich(
             const TextSpan(
               children: [
-                TextSpan(text: 'open'),
+                TextSpan(text: 'krypton'),
                 TextSpan(
                   text: '.',
                   style: TextStyle(color: AppColors.accent),

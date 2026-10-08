@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-enum SttEngine { saaras, local }
+enum SttEngine { groq, saaras, local }
 
 class SttPrefs {
   static bool diarize = true;
-  static SttEngine engine = SttEngine.saaras;
+  static SttEngine engine = SttEngine.groq;
 
   static Future<Directory> _dir() async {
     final dir = await getApplicationSupportDirectory();
@@ -43,14 +43,19 @@ class SttPrefs {
     try {
       final f = await _engineFile();
       if (await f.exists()) {
-        engine = (await f.readAsString()).trim() == 'local'
-            ? SttEngine.local
-            : SttEngine.saaras;
+        final raw = (await f.readAsString()).trim();
+        if (raw == 'local') {
+          engine = SttEngine.local;
+        } else if (raw == 'saaras') {
+          engine = SttEngine.saaras;
+        } else {
+          engine = SttEngine.groq;
+        }
       } else {
-        engine = SttEngine.saaras;
+        engine = SttEngine.groq;
       }
     } catch (_) {
-      engine = SttEngine.saaras;
+      engine = SttEngine.groq;
     }
   }
 
@@ -64,9 +69,18 @@ class SttPrefs {
     final df = await _diarizeFile();
     await df.writeAsString(SttPrefs.diarize ? '1\n' : '0\n', flush: true);
     final ef = await _engineFile();
-    await ef.writeAsString(
-      SttPrefs.engine == SttEngine.local ? 'local\n' : 'saaras\n',
-      flush: true,
-    );
+    final String val;
+    switch (SttPrefs.engine) {
+      case SttEngine.local:
+        val = 'local\n';
+        break;
+      case SttEngine.saaras:
+        val = 'saaras\n';
+        break;
+      case SttEngine.groq:
+        val = 'groq\n';
+        break;
+    }
+    await ef.writeAsString(val, flush: true);
   }
 }
