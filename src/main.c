@@ -961,8 +961,9 @@ int main(void)
 		printk("ERROR: Failed to configure DMIC\n");
 		return 0;
 	}
-	nrf_pdm_gain_set(NRF_PDM, NRF_PDM_GAIN_DEFAULT, NRF_PDM_GAIN_DEFAULT);
-	printk("PDM gain default, HFXO clock\n");
+	/* Increase hardware gain from 0dB (0x28) to +10dB (0x3c) for clear voice pickup */
+	nrf_pdm_gain_set(NRF_PDM, 0x3c, 0x3c);
+	printk("PDM gain +10dB (0x3c), HFXO clock\n");
 
 	if (imu_bringup() == 0) {
 		printk("IMU ready (sleep when still, wake on motion).\n");
