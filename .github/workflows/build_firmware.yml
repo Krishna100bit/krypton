@@ -103,27 +103,39 @@ jobs:
 
       - name: Package Firmware Artifacts
         run: |
-          ls -lh "$GITHUB_WORKSPACE/build/zephyr"
-          # Create friendly Krypton named copies alongside default Zephyr binaries
-          if [ -f "$GITHUB_WORKSPACE/build/zephyr/zephyr.uf2" ]; then
-            cp "$GITHUB_WORKSPACE/build/zephyr/zephyr.uf2" "$GITHUB_WORKSPACE/build/zephyr/krypton.uf2"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          echo "=== Searching for generated binaries in build/ ==="
+          find "$GITHUB_WORKSPACE/build" -type f \( -name "*.uf2" -o -name "*.hex" -o -name "*.bin" \)
+
+          # Copy all generated firmware binaries into output
+          find "$GITHUB_WORKSPACE/build" -type f \( -name "*.uf2" -o -name "*.hex" -o -name "*.bin" \) -exec cp {} "$GITHUB_WORKSPACE/output/" \;
+
+          # If .uf2 was not produced directly, convert hex using Zephyr's uf2conv.py
+          if ! ls "$GITHUB_WORKSPACE/output"/*.uf2 1>/dev/null 2>&1; then
+            echo "UF2 not found in build output. Converting HEX to UF2..."
+            HEX_SRC=$(find "$GITHUB_WORKSPACE/output" -name "*.hex" | head -n 1)
+            UF2CONV=$(find ncs-workspace/zephyr/scripts -name "uf2conv.py" 2>/dev/null | head -n 1)
+            if [ -n "$HEX_SRC" ] && [ -n "$UF2CONV" ]; then
+              python3 "$UF2CONV" -c -b 0x27000 -f NRF52840 -o "$GITHUB_WORKSPACE/output/krypton.uf2" "$HEX_SRC"
+            fi
           fi
-          if [ -f "$GITHUB_WORKSPACE/build/zephyr/zephyr.hex" ]; then
-            cp "$GITHUB_WORKSPACE/build/zephyr/zephyr.hex" "$GITHUB_WORKSPACE/build/zephyr/krypton.hex"
-          fi
-          if [ -f "$GITHUB_WORKSPACE/build/zephyr/zephyr.bin" ]; then
-            cp "$GITHUB_WORKSPACE/build/zephyr/zephyr.bin" "$GITHUB_WORKSPACE/build/zephyr/krypton.bin"
-          fi
+
+          # Ensure krypton.* and zephyr.* names are available
+          cd "$GITHUB_WORKSPACE/output"
+          for ext in uf2 hex bin; do
+            SRC=$(ls *.$ext 2>/dev/null | head -n 1)
+            if [ -n "$SRC" ]; then
+              cp -u "$SRC" "krypton.$ext" 2>/dev/null || cp "$SRC" "krypton.$ext"
+              cp -u "$SRC" "zephyr.$ext" 2>/dev/null || cp "$SRC" "zephyr.$ext"
+            fi
+          done
+
+          echo "=== Final Output Binaries ==="
+          ls -lh "$GITHUB_WORKSPACE/output"
 
       - name: Upload UF2 & HEX Firmware Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: krypton-firmware-uf2
-          path: |
-            build/zephyr/krypton.uf2
-            build/zephyr/zephyr.uf2
-            build/zephyr/krypton.hex
-            build/zephyr/zephyr.hex
-            build/zephyr/krypton.bin
-            build/zephyr/zephyr.bin
+          path: output/*
           if-no-files-found: error
