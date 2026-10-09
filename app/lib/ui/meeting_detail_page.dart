@@ -10,6 +10,8 @@ import '../db/models.dart';
 import '../notes/recap_tasks.dart';
 import '../stt/llm_key_store.dart';
 import '../stt/openai_refine.dart';
+import '../calendar/calendar_launcher.dart';
+import 'email_draft_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'app_theme.dart';
@@ -465,10 +467,36 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
         const SizedBox(height: 14),
         Align(
           alignment: Alignment.centerLeft,
-          child: _GradientPillButton(
-            label: recap == null ? 'Generate recap' : 'Refresh recap',
-            busy: _recapping,
-            onTap: _recapping ? null : _recap,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _GradientPillButton(
+                label: recap == null ? 'Generate recap' : 'Refresh recap',
+                busy: _recapping,
+                onTap: _recapping ? null : _recap,
+              ),
+              if (recap != null)
+                OutlinedButton.icon(
+                  onPressed: () => EmailDraftSheet.showRecapDraft(
+                    context,
+                    meetingTitle: _meeting.timeRangeLabel(now: DateTime.now()),
+                    recapHeadline: recap.headline,
+                    decisions: recap.decisions,
+                    actionItems: [
+                      for (final f in recap.followUps) f.action,
+                      for (final o in recap.openLoops) o,
+                    ],
+                  ),
+                  icon: const Icon(LucideIcons.mail, size: 14),
+                  label: const Text('Draft recap email'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.ink,
+                    side: const BorderSide(color: AppColors.lineStrong),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  ),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 8),
@@ -561,6 +589,32 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
               ),
             ),
             subtitle: items[i].meta.isEmpty ? null : Text(items[i].meta),
+            secondary: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(LucideIcons.calendar, size: 16, color: AppColors.muted),
+                  tooltip: 'Add to Calendar',
+                  onPressed: () {
+                    CalendarLauncher.openEvent(
+                      title: items[i].title,
+                      description: 'Action item from ${_meeting.timeRangeLabel(now: DateTime.now())}',
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(LucideIcons.mail, size: 16, color: AppColors.muted),
+                  tooltip: 'Draft Follow-up Email',
+                  onPressed: () {
+                    EmailDraftSheet.showActionDraft(
+                      context,
+                      task: items[i].title,
+                      meetingTitle: _meeting.timeRangeLabel(now: DateTime.now()),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
       ],
     );

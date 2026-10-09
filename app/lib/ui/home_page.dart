@@ -42,6 +42,8 @@ import '../stt/sarvam_key_store.dart';
 import '../stt/speaker_spans.dart';
 import '../stt/stt_prefs.dart';
 import '../stt/voice_store.dart';
+import '../calendar/calendar_launcher.dart';
+import 'email_draft_sheet.dart';
 import 'clip_page.dart';
 import 'calibrate_page.dart';
 import 'developer_page.dart';
@@ -3744,6 +3746,19 @@ class _HomePageState extends State<HomePage> {
                       await _store.updateNoteKind(n.id, NoteKind.todo);
                     } else if (value == 'thought') {
                       await _store.updateNoteKind(n.id, NoteKind.thought);
+                    } else if (value == 'calendar') {
+                      CalendarLauncher.openEvent(
+                        title: noteTextWithoutSpeakers(n.text),
+                        startTime: n.dueAt?.toLocal() ?? n.createdAt.toLocal(),
+                      );
+                    } else if (value == 'email') {
+                      EmailDraftSheet.showActionDraft(
+                        context,
+                        task: noteTextWithoutSpeakers(n.text),
+                        deadline: n.dueAt != null
+                            ? DateFormat.yMMMd().add_jm().format(n.dueAt!.toLocal())
+                            : null,
+                      );
                     }
                     await NoteReminders.syncAll(_store);
                     await _reload();
@@ -3759,6 +3774,26 @@ class _HomePageState extends State<HomePage> {
                         value: 'thought',
                         child: Text('Mark as thought'),
                       ),
+                    const PopupMenuItem(
+                      value: 'calendar',
+                      child: Row(
+                        children: [
+                          Icon(LucideIcons.calendar, size: 14),
+                          SizedBox(width: 8),
+                          Text('Add to Calendar'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'email',
+                      child: Row(
+                        children: [
+                          Icon(LucideIcons.mail, size: 14),
+                          SizedBox(width: 8),
+                          Text('Draft Email'),
+                        ],
+                      ),
+                    ),
                     const PopupMenuItem(
                       value: 'delete',
                       child: Text('Delete'),
