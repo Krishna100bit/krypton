@@ -3747,10 +3747,16 @@ class _HomePageState extends State<HomePage> {
                     } else if (value == 'thought') {
                       await _store.updateNoteKind(n.id, NoteKind.thought);
                     } else if (value == 'calendar') {
-                      CalendarLauncher.openEvent(
-                        title: noteTextWithoutSpeakers(n.text),
+                      final title = noteTextWithoutSpeakers(n.text);
+                      final res = await CalendarLauncher.addOrOpenEvent(
+                        title: title,
                         startTime: n.dueAt?.toLocal() ?? n.createdAt.toLocal(),
                       );
+                      if (res.automatic && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Added to Calendar: $title')),
+                        );
+                      }
                     } else if (value == 'email') {
                       EmailDraftSheet.showActionDraft(
                         context,

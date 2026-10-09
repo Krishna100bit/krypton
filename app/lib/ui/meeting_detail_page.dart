@@ -595,11 +595,16 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
                 IconButton(
                   icon: const Icon(LucideIcons.calendar, size: 16, color: AppColors.muted),
                   tooltip: 'Add to Calendar',
-                  onPressed: () {
-                    CalendarLauncher.openEvent(
+                  onPressed: () async {
+                    final res = await CalendarLauncher.addOrOpenEvent(
                       title: items[i].title,
                       description: 'Action item from ${_meeting.timeRangeLabel(now: DateTime.now())}',
                     );
+                    if (res.automatic && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Added to Calendar: ${items[i].title}')),
+                      );
+                    }
                   },
                 ),
                 IconButton(
