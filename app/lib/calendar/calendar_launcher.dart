@@ -23,7 +23,10 @@ class CalendarLauncher {
 
     if (Platform.isAndroid) {
       try {
-        var status = await Permission.calendarFullAccess.status;
+        var status = await Permission.calendar.status;
+        if (!status.isGranted) {
+          status = await Permission.calendar.request();
+        }
         if (!status.isGranted) {
           status = await Permission.calendarFullAccess.request();
         }

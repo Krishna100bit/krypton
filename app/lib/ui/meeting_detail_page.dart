@@ -11,6 +11,7 @@ import '../notes/recap_tasks.dart';
 import '../stt/llm_key_store.dart';
 import '../stt/openai_refine.dart';
 import '../calendar/calendar_launcher.dart';
+import '../notes/reminder_parse.dart';
 import 'email_draft_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -521,7 +522,7 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
   Widget _tasks({bool preview = false}) {
     final recap = _meeting.recap;
     final doneById = {for (final note in _meeting.notes) note.id: note.done};
-    final items = <({String id, String title, String meta})>[
+    final items = <({String id, String title, String meta, DateTime? dueAt})>[
       if (recap != null) ...[
         for (final f in recap.followUps)
           (
@@ -535,6 +536,11 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
               if (f.owner.trim().isNotEmpty) f.owner.trim(),
               if (f.when.trim().isNotEmpty) f.when.trim(),
             ].join(' · '),
+            dueAt: parseNoteReminder(
+              '${f.action} ${f.when}',
+              now: _meeting.startedAt.toLocal(),
+              defaultTimeForDate: true,
+            ).dueAt,
           ),
         for (final loop in recap.openLoops)
           (
@@ -545,6 +551,11 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
             ),
             title: loop,
             meta: 'Open',
+            dueAt: parseNoteReminder(
+              loop,
+              now: _meeting.startedAt.toLocal(),
+              defaultTimeForDate: true,
+            ).dueAt,
           ),
       ],
     ];
@@ -599,6 +610,7 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
                     final res = await CalendarLauncher.addOrOpenEvent(
                       title: items[i].title,
                       description: 'Action item from ${_meeting.timeRangeLabel(now: DateTime.now())}',
+                      startTime: items[i].dueAt,
                     );
                     if (res.automatic && mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -615,6 +627,9 @@ class _MeetingDetailPageState extends State<MeetingDetailPage> {
                       context,
                       task: items[i].title,
                       meetingTitle: _meeting.timeRangeLabel(now: DateTime.now()),
+                      deadline: items[i].dueAt != null
+                          ? DateFormat.yMMMd().add_jm().format(items[i].dueAt!)
+                          : (items[i].meta.isNotEmpty ? items[i].meta : null),
                     );
                   },
                 ),

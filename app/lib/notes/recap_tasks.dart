@@ -1,6 +1,7 @@
 import '../db/day_recap.dart';
 import '../db/models.dart';
 import 'note_kind.dart';
+import 'reminder_parse.dart';
 
 String recapTaskId({
   required String scope,
@@ -34,6 +35,11 @@ List<SpokenNote> notesFromRecap({
         text: followUp.action,
         meetingId: meetingId,
         kind: NoteKind.todo,
+        dueAt: parseNoteReminder(
+          '${followUp.action} ${followUp.when}',
+          now: at.toLocal(),
+          defaultTimeForDate: true,
+        ).dueAt,
       ),
     for (final loop in recap.openLoops)
       SpokenNote(
@@ -42,6 +48,11 @@ List<SpokenNote> notesFromRecap({
         text: loop,
         meetingId: meetingId,
         kind: NoteKind.todo,
+        dueAt: parseNoteReminder(
+          loop,
+          now: at.toLocal(),
+          defaultTimeForDate: true,
+        ).dueAt,
       ),
   ];
 }

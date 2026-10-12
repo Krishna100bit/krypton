@@ -128,4 +128,50 @@ void main() {
       DateTime(2026, 9, 3, 8),
     );
   });
+
+  test('set reminder on 15th October at 4 PM', () {
+    final p = parseNoteReminder(
+      'Set reminder on 15th October at 4 PM to submit proposal',
+      now: morning,
+    );
+    expect(p.dueAt, DateTime(2026, 10, 15, 16));
+    expect(p.title.toLowerCase(), contains('submit proposal'));
+  });
+
+  test('remind me on Friday at 5 PM', () {
+    // 2026-09-03 was a Thursday (weekday 4). Friday is 2026-09-04 (weekday 5).
+    final p = parseNoteReminder(
+      'Remind me on Friday at 5 PM to call client',
+      now: morning,
+    );
+    expect(p.dueAt, DateTime(2026, 9, 4, 17));
+    expect(p.title.toLowerCase(), contains('call client'));
+  });
+
+  test('set reminder on October 15 without clock defaults to 9 AM', () {
+    final p = parseNoteReminder(
+      'Set reminder on October 15 to file taxes',
+      now: morning,
+    );
+    expect(p.dueAt, DateTime(2026, 10, 15, 9));
+    expect(p.title.toLowerCase(), contains('file taxes'));
+  });
+
+  test('explicit reminder tomorrow defaults to 9 AM next day', () {
+    final p = parseNoteReminder(
+      'Remind me tomorrow to renew insurance',
+      now: morning,
+    );
+    expect(p.dueAt, DateTime(2026, 9, 4, 9));
+    expect(p.title.toLowerCase(), contains('renew insurance'));
+  });
+
+  test('relative in 2 hours', () {
+    final p = parseNoteReminder(
+      'Check oven in 2 hours',
+      now: morning,
+    );
+    expect(p.dueAt, morning.add(const Duration(hours: 2)));
+    expect(p.title.toLowerCase(), contains('check oven'));
+  });
 }

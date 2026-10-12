@@ -3748,9 +3748,15 @@ class _HomePageState extends State<HomePage> {
                       await _store.updateNoteKind(n.id, NoteKind.thought);
                     } else if (value == 'calendar') {
                       final title = noteTextWithoutSpeakers(n.text);
+                      final parsedDue = n.dueAt?.toLocal() ??
+                          parseNoteReminder(
+                            n.text,
+                            now: n.createdAt.toLocal(),
+                            defaultTimeForDate: true,
+                          ).dueAt;
                       final res = await CalendarLauncher.addOrOpenEvent(
                         title: title,
-                        startTime: n.dueAt?.toLocal() ?? n.createdAt.toLocal(),
+                        startTime: parsedDue ?? n.createdAt.toLocal(),
                       );
                       if (res.automatic && mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(

@@ -41,10 +41,14 @@ class MainActivity : FlutterActivity() {
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
             CalendarContract.Calendars.IS_PRIMARY,
-            CalendarContract.Calendars.VISIBLE
+            CalendarContract.Calendars.VISIBLE,
+            CalendarContract.Calendars.ACCOUNT_TYPE,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
         )
 
         var calendarId: Long = -1L
+        var bestScore = -1
+
         contentResolver.query(
             CalendarContract.Calendars.CONTENT_URI,
             projection,
@@ -54,16 +58,30 @@ class MainActivity : FlutterActivity() {
         )?.use { cursor ->
             val idIndex = cursor.getColumnIndex(CalendarContract.Calendars._ID)
             val primaryIndex = cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)
+            val visibleIndex = cursor.getColumnIndex(CalendarContract.Calendars.VISIBLE)
+            val accountTypeIndex = cursor.getColumnIndex(CalendarContract.Calendars.ACCOUNT_TYPE)
+            val accessIndex = cursor.getColumnIndex(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
 
             while (cursor.moveToNext()) {
                 val id = if (idIndex != -1) cursor.getLong(idIndex) else -1L
                 val isPrimary = if (primaryIndex != -1) cursor.getInt(primaryIndex) == 1 else false
+                val isVisible = if (visibleIndex != -1) cursor.getInt(visibleIndex) == 1 else true
+                val accountType = if (accountTypeIndex != -1) cursor.getString(accountTypeIndex) ?: "" else ""
+                val accessLevel = if (accessIndex != -1) cursor.getInt(accessIndex) else 700
 
-                if (isPrimary && id != -1L) {
-                    calendarId = id
-                    break
+                // Only consider writable calendars (access level >= 500: contributor/owner)
+                if (id == -1L || accessLevel < CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR) {
+                    continue
                 }
-                if (calendarId == -1L && id != -1L) {
+
+                // Score: Google account + visible gets highest priority for active sync and notifications
+                var score = 1
+                if (isVisible) score += 3
+                if (accountType.equals("com.google", ignoreCase = true)) score += 10
+                if (isPrimary) score += 5
+
+                if (score > bestScore) {
+                    bestScore = score
                     calendarId = id
                 }
             }
@@ -87,16 +105,32 @@ class MainActivity : FlutterActivity() {
         val eventUri = contentResolver.insert(CalendarContract.Events.CONTENT_URI, eventValues)
             ?: return false
 
-        // Add 15-minute alert notification
-        val eventId = eventUri.lastPathSegment?.toLongOrNull()
+        // Add notification alerts: both at the time of the event (0 min) and advance notice (15 min)
+        val eventId = try {
+            android.content.ContentUris.parseId(eventUri)
+        } catch (_: Exception) {
+            eventUri.lastPathSegment?.toLongOrNull()
+        }
+
         if (eventId != null) {
-            val reminderValues = ContentValues().apply {
+            // 1. Alert at the exact time of the event (0 minutes)
+            val onTimeReminder = ContentValues().apply {
+                put(CalendarContract.Reminders.EVENT_ID, eventId)
+                put(CalendarContract.Reminders.MINUTES, 0)
+                put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+            }
+            try {
+                contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, onTimeReminder)
+            } catch (_: Exception) {}
+
+            // 2. Alert 15 minutes before the event
+            val advanceReminder = ContentValues().apply {
                 put(CalendarContract.Reminders.EVENT_ID, eventId)
                 put(CalendarContract.Reminders.MINUTES, 15)
                 put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
             }
             try {
-                contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, reminderValues)
+                contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, advanceReminder)
             } catch (_: Exception) {}
         }
 
