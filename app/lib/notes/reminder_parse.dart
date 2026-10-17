@@ -280,24 +280,26 @@ _DateMatch? _findDateMatch(
     );
   }
 
-  // Pattern: "on the 15th" / "on 24th"
+  // Pattern: "on the 15th" / "on 24th" / "25th" / "for 25th" / "on 25"
   final ordinalDay = RegExp(
-    r'\b(?:on\s+)(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b',
+    r'\b(?:(?:on|for)\s+)?(?:the\s+|date\s+)?(\d{1,2})(?:st|nd|rd|th)\b|\b(?:on|for)\s+(?:the\s+|date\s+)?(\d{1,2})\b',
     caseSensitive: false,
   ).firstMatch(raw);
   if (ordinalDay != null) {
-    final dayNum = int.tryParse(ordinalDay.group(1) ?? '') ?? 1;
-    var resolved = DateTime(now.year, now.month, dayNum);
-    if (resolved.isBefore(DateTime(now.year, now.month, now.day))) {
-      resolved = DateTime(now.year, now.month + 1, dayNum);
+    final dayNum = int.tryParse(ordinalDay.group(1) ?? ordinalDay.group(2) ?? '') ?? 1;
+    if (dayNum >= 1 && dayNum <= 31) {
+      var resolved = DateTime(now.year, now.month, dayNum);
+      if (resolved.isBefore(DateTime(now.year, now.month, now.day))) {
+        resolved = DateTime(now.year, now.month + 1, dayNum);
+      }
+      return _DateMatch(
+        targetDate: resolved,
+        start: ordinalDay.start,
+        end: ordinalDay.end,
+        hasDefaultHour: true,
+        defaultHour: 9,
+      );
     }
-    return _DateMatch(
-      targetDate: resolved,
-      start: ordinalDay.start,
-      end: ordinalDay.end,
-      hasDefaultHour: true,
-      defaultHour: 9,
-    );
   }
 
   // 6. Weekdays: "on Friday", "next Monday", "this Tuesday", "coming Wednesday"
@@ -482,7 +484,7 @@ DateTime? _dueAt({
       } else {
         date = date.add(const Duration(days: 1));
       }
-    } else if (hour <= 7 && dateMatch?.dayWord == null) {
+    } else if (hour <= 7 && dateMatch.dayWord == null) {
       // For general daytime meetings/reminders e.g. "at 4", prefer 4 PM over 4 AM
       hour = pm.hour;
     }

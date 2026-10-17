@@ -1,7 +1,12 @@
 package com.openpendant.openpendant
 
+import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
 import android.provider.CalendarContract
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -9,25 +14,51 @@ import java.util.TimeZone
 
 class MainActivity : FlutterActivity() {
     private val CALENDAR_CHANNEL = "com.openpendant.calendar"
+    private val TAG = "KryptonCalendar"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALENDAR_CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "insertCalendarEvent") {
-                val title = call.argument<String>("title") ?: ""
-                val description = call.argument<String>("description") ?: ""
-                val startTime = call.argument<Long>("startTime") ?: System.currentTimeMillis()
-                val endTime = call.argument<Long>("endTime") ?: (startTime + 30 * 60 * 1000)
+            when (call.method) {
+                "insertCalendarEvent" -> {
+                    val title = call.argument<String>("title") ?: ""
+                    val description = call.argument<String>("description") ?: ""
+                    val startTime = call.argument<Long>("startTime") ?: System.currentTimeMillis()
+                    val endTime = call.argument<Long>("endTime") ?: (startTime + 30 * 60 * 1000)
 
-                try {
-                    val success = insertNativeCalendarEvent(title, description, startTime, endTime)
-                    result.success(success)
-                } catch (e: Exception) {
-                    result.error("CALENDAR_ERROR", e.message, null)
+                    try {
+                        val success = insertNativeCalendarEvent(title, description, startTime, endTime)
+                        result.success(success)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error inserting calendar event", e)
+                        result.error("CALENDAR_ERROR", e.message, null)
+                    }
                 }
-            } else {
-                result.notImplemented()
+                "openCalendarIntent" -> {
+                    val title = call.argument<String>("title") ?: ""
+                    val description = call.argument<String>("description") ?: ""
+                    val startTime = call.argument<Long>("startTime") ?: System.currentTimeMillis()
+                    val endTime = call.argument<Long>("endTime") ?: (startTime + 30 * 60 * 1000)
+
+                    try {
+                        val intent = Intent(Intent.ACTION_INSERT).apply {
+                            data = CalendarContract.Events.CONTENT_URI
+                            putExtra(CalendarContract.Events.TITLE, title)
+                            putExtra(CalendarContract.Events.DESCRIPTION, description)
+                            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startTime)
+                            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endTime)
+                            putExtra(CalendarContract.Events.HAS_ALARM, 1)
+                            putExtra(CalendarContract.Reminders.MINUTES, 10)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error opening calendar intent", e)
+                        result.success(false)
+                    }
+                }
+                else -> result.notImplemented()
             }
         }
     }
@@ -42,11 +73,14 @@ class MainActivity : FlutterActivity() {
             CalendarContract.Calendars._ID,
             CalendarContract.Calendars.IS_PRIMARY,
             CalendarContract.Calendars.VISIBLE,
+            CalendarContract.Calendars.ACCOUNT_NAME,
             CalendarContract.Calendars.ACCOUNT_TYPE,
             CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
         )
 
         var calendarId: Long = -1L
+        var selectedAccountName = ""
+        var selectedAccountType = ""
         var bestScore = -1
 
         contentResolver.query(
@@ -59,6 +93,7 @@ class MainActivity : FlutterActivity() {
             val idIndex = cursor.getColumnIndex(CalendarContract.Calendars._ID)
             val primaryIndex = cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)
             val visibleIndex = cursor.getColumnIndex(CalendarContract.Calendars.VISIBLE)
+            val accountNameIndex = cursor.getColumnIndex(CalendarContract.Calendars.ACCOUNT_NAME)
             val accountTypeIndex = cursor.getColumnIndex(CalendarContract.Calendars.ACCOUNT_TYPE)
             val accessIndex = cursor.getColumnIndex(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
 
@@ -66,6 +101,7 @@ class MainActivity : FlutterActivity() {
                 val id = if (idIndex != -1) cursor.getLong(idIndex) else -1L
                 val isPrimary = if (primaryIndex != -1) cursor.getInt(primaryIndex) == 1 else false
                 val isVisible = if (visibleIndex != -1) cursor.getInt(visibleIndex) == 1 else true
+                val accountName = if (accountNameIndex != -1) cursor.getString(accountNameIndex) ?: "" else ""
                 val accountType = if (accountTypeIndex != -1) cursor.getString(accountTypeIndex) ?: "" else ""
                 val accessLevel = if (accessIndex != -1) cursor.getInt(accessIndex) else 700
 
@@ -83,13 +119,18 @@ class MainActivity : FlutterActivity() {
                 if (score > bestScore) {
                     bestScore = score
                     calendarId = id
+                    selectedAccountName = accountName
+                    selectedAccountType = accountType
                 }
             }
         }
 
         if (calendarId == -1L) {
+            Log.w(TAG, "No writable calendar found on device")
             return false
         }
+
+        Log.d(TAG, "Using calendar ID: $calendarId, account: $selectedAccountName, type: $selectedAccountType")
 
         val eventValues = ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, calendarId)
@@ -100,38 +141,88 @@ class MainActivity : FlutterActivity() {
             put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
             put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CONFIRMED)
             put(CalendarContract.Events.HAS_ALARM, 1)
+            put(CalendarContract.Events.ALL_DAY, 0)
         }
 
-        val eventUri = contentResolver.insert(CalendarContract.Events.CONTENT_URI, eventValues)
-            ?: return false
+        // Build URI with sync adapter params so Google Calendar syncs the event & reminders
+        val baseEventUri = if (selectedAccountName.isNotEmpty() && selectedAccountType.isNotEmpty()) {
+            CalendarContract.Events.CONTENT_URI.buildUpon()
+                .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+                .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, selectedAccountName)
+                .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, selectedAccountType)
+                .build()
+        } else {
+            CalendarContract.Events.CONTENT_URI
+        }
 
-        // Add notification alerts: both at the time of the event (0 min) and advance notice (15 min)
+        var eventUri = try {
+            contentResolver.insert(baseEventUri, eventValues)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to insert event with sync adapter URI, trying fallback: ${e.message}")
+            null
+        }
+
+        if (eventUri == null) {
+            eventUri = contentResolver.insert(CalendarContract.Events.CONTENT_URI, eventValues)
+                ?: return false
+        }
+
         val eventId = try {
-            android.content.ContentUris.parseId(eventUri)
+            ContentUris.parseId(eventUri)
         } catch (_: Exception) {
             eventUri.lastPathSegment?.toLongOrNull()
         }
 
         if (eventId != null) {
-            // 1. Alert at the exact time of the event (0 minutes)
-            val onTimeReminder = ContentValues().apply {
-                put(CalendarContract.Reminders.EVENT_ID, eventId)
-                put(CalendarContract.Reminders.MINUTES, 0)
-                put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+            val baseReminderUri = if (selectedAccountName.isNotEmpty() && selectedAccountType.isNotEmpty()) {
+                CalendarContract.Reminders.CONTENT_URI.buildUpon()
+                    .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, selectedAccountName)
+                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, selectedAccountType)
+                    .build()
+            } else {
+                CalendarContract.Reminders.CONTENT_URI
             }
-            try {
-                contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, onTimeReminder)
-            } catch (_: Exception) {}
 
-            // 2. Alert 15 minutes before the event
-            val advanceReminder = ContentValues().apply {
-                put(CalendarContract.Reminders.EVENT_ID, eventId)
-                put(CalendarContract.Reminders.MINUTES, 15)
-                put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+            // Add standard Google Calendar reminders: 10 minutes before and 0 minutes (at event time)
+            val reminderMinutes = intArrayOf(10, 0)
+            for (min in reminderMinutes) {
+                val reminderValues = ContentValues().apply {
+                    put(CalendarContract.Reminders.EVENT_ID, eventId)
+                    put(CalendarContract.Reminders.MINUTES, min)
+                    put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+                }
+
+                var rUri: Uri? = null
+                try {
+                    rUri = contentResolver.insert(baseReminderUri, reminderValues)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Sync adapter reminder insert failed for $min min: ${e.message}")
+                }
+                if (rUri == null) {
+                    try {
+                        rUri = contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, reminderValues)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Standard reminder insert failed for $min min: ${e.message}")
+                    }
+                }
+                Log.d(TAG, "Inserted reminder ($min min) -> $rUri")
             }
+        }
+
+        // Trigger immediate Google Calendar account sync so notifications appear in Google Calendar app
+        if (selectedAccountName.isNotEmpty() && selectedAccountType.equals("com.google", ignoreCase = true)) {
             try {
-                contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, advanceReminder)
-            } catch (_: Exception) {}
+                val account = android.accounts.Account(selectedAccountName, selectedAccountType)
+                val bundle = Bundle().apply {
+                    putBoolean(android.content.ContentResolver.SYNC_EXTRAS_MANUAL, true)
+                    putBoolean(android.content.ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+                }
+                android.content.ContentResolver.requestSync(account, CalendarContract.AUTHORITY, bundle)
+                Log.d(TAG, "Requested sync for $selectedAccountName")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error requesting calendar sync", e)
+            }
         }
 
         return true

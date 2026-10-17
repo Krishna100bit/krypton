@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../ble/pendant_prefs.dart';
+import '../calendar/google_oauth.dart';
 import '../macos/cursor_composer.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../mem0/mem0_store.dart';
 import '../notes/note_prefs.dart';
 import '../stt/api_key_store.dart';
@@ -58,10 +60,14 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _autoConnect = false;
   bool _loaded = false;
   bool _saving = false;
+  GoogleSignInAccount? _googleUser;
 
   @override
   void initState() {
     super.initState();
+    GoogleOAuthStore.currentUser().then((u) {
+      if (mounted) setState(() => _googleUser = u);
+    });
     Future.wait([
       ApiKeyStore.read(),
       SarvamKeyStore.read(),
@@ -641,6 +647,7 @@ class _SettingsPageState extends State<SettingsPage> {
       required String title,
       required String caption,
       required VoidCallback? onTap,
+      Widget? trailing,
     }) {
       return Column(
         children: [
@@ -667,8 +674,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       ],
                     ),
                   ),
-                  const Icon(LucideIcons.chevronRight,
-                      size: 15, color: AppColors.faint),
+                  trailing ??
+                      const Icon(LucideIcons.chevronRight,
+                          size: 15, color: AppColors.faint),
                 ],
               ),
             ),
@@ -679,6 +687,57 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     return [
+      row(
+        icon: LucideIcons.calendar,
+        title: 'Google Calendar',
+        caption: _googleUser != null
+            ? 'Connected: ${_googleUser!.email}'
+            : 'Sign in for instant calendar sync and notifications',
+        trailing: _googleUser != null
+            ? TextButton(
+                onPressed: () async {
+                  await GoogleOAuthStore.signOut();
+                  if (mounted) {
+                    setState(() => _googleUser = null);
+                  }
+                },
+                child: const Text('Sign out',
+                    style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+              )
+            : TextButton(
+                onPressed: () async {
+                  try {
+                    final u = await GoogleOAuthStore.signIn();
+                    if (mounted) {
+                      setState(() => _googleUser = u);
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Sign-in failed: $e')),
+                      );
+                    }
+                  }
+                },
+                child: const Text('Sign in', style: TextStyle(fontSize: 12)),
+              ),
+        onTap: () async {
+          if (_googleUser == null) {
+            try {
+              final u = await GoogleOAuthStore.signIn();
+              if (mounted) {
+                setState(() => _googleUser = u);
+              }
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Sign-in failed: $e')),
+                );
+              }
+            }
+          }
+        },
+      ),
       row(
         icon: LucideIcons.bluetoothSearching,
         title: 'Find pendant',

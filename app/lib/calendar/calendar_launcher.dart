@@ -1,17 +1,22 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:googleapis/calendar/v3.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'google_oauth.dart';
+
 /// Handles adding calendar events:
-/// 1. Primary: Automatic background insert into native Android Calendar (0 taps needed).
-/// 2. Fallback: Opens Google Calendar app prefilled if permission is denied.
+/// 1. Primary: Google Calendar REST API via Google Sign-In (instant ~300ms, real-time cloud push & guaranteed alerts).
+/// 2. Secondary: Automatic background insert into native Android Calendar.
+/// 3. Tertiary: Native Google Calendar Intent with prefilled reminders.
+/// 4. Fallback: Opens Google Calendar web render URL.
 class CalendarLauncher {
   static const _channel = MethodChannel('com.openpendant.calendar');
 
-  /// Attempts to insert the event silently in the background on Android.
-  /// Falls back to launching the Calendar app if not supported or permission denied.
+  /// Attempts to insert the event silently via Google Calendar API or native Android.
   static Future<({bool automatic, bool success})> addOrOpenEvent({
     required String title,
     String description = '',
@@ -21,12 +26,40 @@ class CalendarLauncher {
     final start = startTime ?? DateTime.now();
     final end = endTime ?? start.add(const Duration(minutes: 30));
 
+    // 1. Primary: Direct Google Calendar API (instant, guaranteed alerts on all devices)
+    try {
+      final client = await GoogleOAuthStore.getCalendarClient();
+      if (client != null) {
+        final api = CalendarApi(client);
+        final desc = description.trim().isEmpty ? 'Krypton' : '$description\n\nKrypton';
+        final event = Event(
+          summary: title,
+          description: desc,
+          start: EventDateTime(dateTime: start.toUtc(), timeZone: 'UTC'),
+          end: EventDateTime(dateTime: end.toUtc(), timeZone: 'UTC'),
+          reminders: EventReminders(
+            useDefault: false,
+            overrides: [
+              EventReminder(method: 'popup', minutes: 10),
+              EventReminder(method: 'popup', minutes: 0),
+            ],
+          ),
+        );
+        final created = await api.events.insert(event, 'primary');
+        client.close();
+        if (created.id != null) {
+          debugPrint('Google Calendar API: Event created with ID ${created.id}');
+          return (automatic: true, success: true);
+        }
+      }
+    } catch (e) {
+      debugPrint('Google Calendar API insert failed: $e, falling back to local');
+    }
+
+    // 2. Secondary: Native Android background insert
     if (Platform.isAndroid) {
       try {
-        var status = await Permission.calendar.status;
-        if (!status.isGranted) {
-          status = await Permission.calendar.request();
-        }
+        var status = await Permission.calendarFullAccess.status;
         if (!status.isGranted) {
           status = await Permission.calendarFullAccess.request();
         }
@@ -47,10 +80,27 @@ class CalendarLauncher {
           }
         }
       } catch (_) {
-        // Fall back to opening calendar
+        // Fall back
       }
+
+      // 3. Fallback: Open native Google Calendar intent with prefilled reminders
+      try {
+        final bool? opened = await _channel.invokeMethod<bool>(
+          'openCalendarIntent',
+          {
+            'title': title,
+            'description': description,
+            'startTime': start.millisecondsSinceEpoch,
+            'endTime': end.millisecondsSinceEpoch,
+          },
+        );
+        if (opened == true) {
+          return (automatic: false, success: true);
+        }
+      } catch (_) {}
     }
 
+    // 4. Fallback: Web template URL
     final launched = await openEvent(
       title: title,
       description: description,

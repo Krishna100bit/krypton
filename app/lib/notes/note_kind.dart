@@ -12,7 +12,10 @@ abstract final class NoteKind {
 final _actionPrefix = RegExp(
   r'^(?:(?:hey|hi|okay|ok|please)\s+)*'
   r'(?:'
+  r'set\s+(?:a\s+)?reminder\b|'
   r'remind\s+me\b|'
+  r'schedule\b|'
+  r'reminder\b|'
   r'to[\-\s]?do\b|'
   r'todo\b|'
   r'follow[\-\s]?up\b'
